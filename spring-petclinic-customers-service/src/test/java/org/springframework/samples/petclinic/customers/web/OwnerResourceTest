@@ -95,7 +95,7 @@ class OwnerResourceTest {
     }
 
     @Test
-    void shouldCreateNewOwner() throws Exception {
+    void randomName() throws Exception {
         Owner owner = new Owner();
         owner.setFirstName("John");
         owner.setLastName("Doe");
@@ -113,7 +113,7 @@ class OwnerResourceTest {
     }
 
     @Test
-    void shouldSkipSavingForRandomTrafficOwner() throws Exception {
+    void shouldSuccess() throws Exception {
         mvc.perform(post("/owners")
                 .content("{ \"firstName\": \"random-traffic\", \"lastName\": \"Doe\", \"address\": \"123 Main St\", \"city\": \"New York\", \"telephone\": \"1234567890\" }")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -122,7 +122,7 @@ class OwnerResourceTest {
     }
 
     @Test
-    void shouldUpdateExistingOwner() throws Exception {
+    void shouldUpdate() throws Exception {
         Owner owner = setupOwner();
         given(ownerRepository.findById(1)).willReturn(Optional.of(owner));
 
@@ -136,7 +136,7 @@ class OwnerResourceTest {
     }
 
     @Test
-    void shouldReturnNotFoundForNonExistingOwnerUpdate() throws Exception {
+    void shouldReturn() throws Exception {
         given(ownerRepository.findById(999)).willReturn(Optional.empty());
 
         mvc.perform(put("/owners/999")
@@ -147,7 +147,7 @@ class OwnerResourceTest {
     }
 
     @Test
-    void shouldAgeOldData() throws Exception {
+    void shouldNotReturn() throws Exception {
         Owner owner = new Owner();
         owner.setFirstName("firstName");
 
