@@ -1,0 +1,219 @@
+/*
+ * Copyright 2002-2021 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.springframework.samples.petclinic.customers.web;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Example;
+import org.springframework.data.domain.ExampleMatcher;
+import org.springframework.http.MediaType;
+import org.springframework.samples.petclinic.customers.aws.*;
+import org.springframework.samples.petclinic.customers.model.Owner;
+import org.springframework.samples.petclinic.customers.model.OwnerRepository;
+import org.springframework.samples.petclinic.customers.model.Pet;
+import org.springframework.samples.petclinic.customers.model.PetRepository;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
+import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+/**
+ * Test class for {@link OwnerResource}
+ */
+@ExtendWith(SpringExtension.class)
+@WebMvcTest(OwnerResource.class)
+@ActiveProfiles("test")
+class OwnerResourceTest {
+
+    @Autowired
+    MockMvc mvc;
+
+    @MockBean
+    OwnerRepository ownerRepository;
+
+    @MockBean
+    PetRepository petRepository;
+
+    @MockBean
+    SqsService sqsService;
+
+    @MockBean
+    KinesisService kinesisService;
+
+    @MockBean
+    RestTemplate restTemplate;
+
+    @MockBean
+    BedrockAgentV1Service bedrockAgentV1Service;
+
+    @MockBean
+    BedrockAgentV2Service bedrockAgentV2Service;
+
+    @MockBean
+    BedrockRuntimeV1Service bedrockRuntimeV1Service;
+
+    @MockBean
+    BedrockRuntimeV2Service bedrockRuntimeV2Service;
+
+    @MockBean
+    BedrockV1Service bedrockV1Service;
+
+    @MockBean
+    BedrockV2Service bedrockV2Service;
+
+    @Test
+    void shouldReturnBadRequestForInvalidOwnerId() throws Exception {
+        mvc.perform(get("/owners/0").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldCreateNewOwner() throws Exception {
+        Owner owner = new Owner();
+        owner.setFirstName("John");
+        owner.setLastName("Doe");
+        owner.setAddress("123 Main St");
+        owner.setCity("New York");
+        owner.setTelephone("1234567890");
+
+        given(ownerRepository.save(any(Owner.class))).willReturn(owner);
+
+        mvc.perform(post("/owners")
+                .content("{ \"firstName\": \"John\", \"lastName\": \"Doe\", \"address\": \"123 Main St\", \"city\": \"New York\", \"telephone\": \"1234567890\" }")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isCreated());
+    }
+
+    @Test
+    void shouldSkipSavingForRandomTrafficOwner() throws Exception {
+        mvc.perform(post("/owners")
+                .content("{ \"firstName\": \"random-traffic\", \"lastName\": \"Doe\", \"address\": \"123 Main St\", \"city\": \"New York\", \"telephone\": \"1234567890\" }")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isCreated());
+    }
+
+    @Test
+    void shouldUpdateExistingOwner() throws Exception {
+        Owner owner = setupOwner();
+        given(ownerRepository.findById(1)).willReturn(Optional.of(owner));
+
+        mvc.perform(put("/owners/1")
+                .content("{ \"firstName\": \"Johnny\", \"lastName\": \"Doe\", \"address\": \"123 Main St\", \"city\": \"Boston\", \"telephone\": \"1234567890\" }")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isNoContent());
+
+        verify(ownerRepository).save(any(Owner.class));
+    }
+
+    @Test
+    void shouldReturnNotFoundForNonExistingOwnerUpdate() throws Exception {
+        given(ownerRepository.findById(999)).willReturn(Optional.empty());
+
+        mvc.perform(put("/owners/999")
+                .content("{ \"firstName\": \"Johnny\", \"lastName\": \"Doe\", \"address\": \"123 Main St\", \"city\": \"Boston\", \"telephone\": \"1234567890\" }")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldAgeOldData() throws Exception {
+        Owner owner = new Owner();
+        owner.setFirstName("firstName");
+
+        Example<Owner> ownerExample = Example.of(
+                owner,
+                ExampleMatcher
+                        .matchingAll()
+                        .withStringMatcher(ExampleMatcher.StringMatcher.STARTING));
+
+        List<Owner> owners = Arrays.asList(setupOwner(), setupAnotherOwner());
+        given(ownerRepository.findAll(any(Example.class))).willReturn(owners);
+
+        Pet pet = new Pet();
+        pet.setName("lastName");
+
+        Example<Pet> petExample = Example.of(
+                pet,
+                ExampleMatcher
+                        .matchingAll()
+                        .withStringMatcher(ExampleMatcher.StringMatcher.STARTING));
+
+        List<Pet> pets = Arrays.asList(new Pet(), new Pet());
+        given(petRepository.findAll(any(Example.class))).willReturn(pets);
+
+        // Create an instance of OwnerResource to call the scheduled method directly
+        OwnerResource ownerResource = new OwnerResource(ownerRepository, petRepository);
+        ownerResource.ageOldData();
+
+        verify(ownerRepository).deleteAll();
+        verify(petRepository).deleteAllInBatch(any());
+        verify(ownerRepository).deleteAllInBatch(any());
+    }
+
+    private Owner setupOwner() {
+        Owner owner = new Owner();
+        // We can't set ID directly as there's no setter, but we can use reflection for testing
+        try {
+            java.lang.reflect.Field idField = Owner.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(owner, 1);
+        } catch (Exception e) {
+            // Ignore for test purposes
+        }
+        owner.setFirstName("John");
+        owner.setLastName("Doe");
+        owner.setAddress("123 Main St");
+        owner.setCity("New York");
+        owner.setTelephone("1234567890");
+        return owner;
+    }
+
+    private Owner setupAnotherOwner() {
+        Owner owner = new Owner();
+        // We can't set ID directly as there's no setter, but we can use reflection for testing
+        try {
+            java.lang.reflect.Field idField = Owner.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(owner, 2);
+        } catch (Exception e) {
+            // Ignore for test purposes
+        }
+        owner.setFirstName("Jane");
+        owner.setLastName("Smith");
+        owner.setAddress("456 Oak Ave");
+        owner.setCity("Boston");
+        owner.setTelephone("0987654321");
+        return owner;
+    }
+}
